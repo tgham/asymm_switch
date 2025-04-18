@@ -9,6 +9,7 @@ import itertools
 from scipy.special import softmax
 from functools import partial
 from scipy.optimize import Bounds, minimize
+import scipy.stats
 from models import TI_RL
 from tqdm.auto import tqdm
 import warnings 
@@ -24,7 +25,7 @@ def generate_sequences(p, n_items, n_blocks, switch_block, switch, switch_type):
     all_trials = np.empty((0,4), int)
 
     ## set stim directory and file names
-    stim_folder = '../expt/gen_trials/stimuli_' + str(n_items)
+    stim_folder = '../stim_scripts/stimuli_' + str(n_items)
     stim_IDs = os.listdir(stim_folder)
 
     ## randomly assign value to each stim
@@ -416,8 +417,8 @@ def save_seq(df_trials):
 ### fitting functions
 
 ## function for fitting all participants to a given model
-def fit_model(m, model_set, current_params, df_trials, p, x0s, bounds, minimize_method, minimize_method_opts, model_type, fit = True, recovery=False):
-    
+def fit_model(m, model_set, gen_params, df_trials, p, x0s, bounds, minimize_method, minimize_method_opts, model_type, fit = True, recovery=False):
+# def fit_model(m, model_set, df_trials, p, x0s, bounds, minimize_method, minimize_method_opts, model_type, fit = True, recovery=False): ## USE THIS ONE IF FITTING, USE THE ONE ABOVE IF RECOVERING    
 
     ## init dict
     fit_out = {
@@ -434,9 +435,8 @@ def fit_model(m, model_set, current_params, df_trials, p, x0s, bounds, minimize_
 
     ## if performing recovery, save the data-generating params
     if recovery == True:
-        for param in current_params:
+        for param in gen_params:
             fit_out['gen_'+param] = []
-    
     n_items = int(np.nanmax(df_trials['Item_1']))
 
 
@@ -462,9 +462,8 @@ def fit_model(m, model_set, current_params, df_trials, p, x0s, bounds, minimize_
     #     bounds = bounds,
     #     # options = minimize_method_opts,
     # )
-
-
     
+
     ### optimise for multiple initial points
     for ix0 in range(len(x0s)):
 
@@ -475,6 +474,7 @@ def fit_model(m, model_set, current_params, df_trials, p, x0s, bounds, minimize_
                 # x0 = x0s[ix0],
                 bounds = bounds,
                 maxiter = 500,
+                # maxiter = 100,
                 disp = False,
                 popsize  = 50,
                 recombination = 0.5,
@@ -505,8 +505,9 @@ def fit_model(m, model_set, current_params, df_trials, p, x0s, bounds, minimize_
         fit_out['nfev'].append(res.nfev)
         fit_out['nit'].append(res.nit)
 
+        ## if doing recovery
         if recovery == True:
-            for param in current_params:
+            for param in gen_params:
                 fit_out['gen_'+param].append(df_trials['gen_'+param].iloc[0])
 
         # # consolidate data (inc param initial points)
@@ -620,3 +621,102 @@ def asymm_metric(all_data, model = 'human', adj = False, extremes = True, split 
                 slopes[h, pi] = lin_reg.coef_
 
     return asymm, slopes
+
+
+### functions for calculating effect sizes and confidence intervals etc.
+
+def one_sample_ttest_extras(data, chance, conf = 0.95):
+    mean_diff = np.mean(data) - chance
+    std_diff = np.std(data, ddof=1)
+    effsize = mean_diff / std_diff
+    t_crit = scipy.stats.t.ppf(1 - (1-conf)/2, len(data)-1)
+    se = std_diff / np.sqrt(len(data))
+    CI = (mean_diff - t_crit * se, mean_diff + t_crit * se)
+    print('effect size (Cohen\'s d): ', effsize)
+    print(conf*100, '% CI: ', CI)
+
+
+def paired_ttest_extras(data1, data2, conf = 0.95):
+    diff = data1 - data2
+    mean_diff = np.mean(diff)
+    std_diff = np.std(diff, ddof=1)
+    effsize = mean_diff / std_diff
+    t_crit = scipy.stats.t.ppf(1 - (1-conf)/2, len(diff)-1)
+    se = std_diff / np.sqrt(len(diff))
+    CI = (mean_diff - t_crit * se, mean_diff + t_crit * se)
+    print('effect size (Cohen\'s d): ', effsize)
+    print(conf*100, '% CI: ', CI)
+
+
+def indep_sample_ttest_extras(data1, data2, conf = 0.95):
+    mean1, mean2 = np.mean(data1), np.mean(data2)
+    var1, var2 = np.var(data1, ddof=1), np.var(data2, ddof=1)
+    pooled_s = np.sqrt(((len(data1) - 1) * var1 + (len(data2) - 1) * var2) / (len(data1) + len(data2) - 2))
+    effsize = (mean1 - mean2) / pooled_s
+    t_crit = scipy.stats.t.ppf(1 - (1-conf)/2, len(data1) + len(data2) - 2)
+    se = np.sqrt(var1 / len(data1) + var2 / len(data2))
+    CI = (mean1 - mean2 - t_crit * se, mean1 - mean2 + t_crit * se)
+    print('effect size (Cohen\'s d): ', effsize)
+    print(conf*100, '% CI: ', CI)
+
+
+def wilc_extras(data1, data2, num_resamples=10000, alpha=0.05):
+    
+    ##effect size
+    wilc = stats.wilcoxon(data1, data2, method='approx', alternative='two-sided')
+    r = wilc.zstatistic / np.sqrt(len(data1))
+    print('effect size (r) = ', r)
+    
+    ##CI
+    n = len(data1)
+    bootstrapped_r = []
+    for _ in range(num_resamples):
+        indices = np.random.choice(range(n), size=n, replace=True)
+        try:
+            sample1 = data1[indices]
+            sample2 = data2[indices]
+        except:
+            sample1 = data1.iloc[indices]
+            sample2 = data2.iloc[indices]
+        wilc = stats.wilcoxon(sample1, sample2, method='approx', alternative='two-sided')
+        r = wilc.zstatistic / np.sqrt(len(sample1))
+        bootstrapped_r.append(r)
+    
+    lower = np.percentile(bootstrapped_r, 100 * alpha / 2)
+    upper = np.percentile(bootstrapped_r, 100 * (1 - alpha / 2))
+    print('CI = ', lower, upper)
+
+
+def mannw_extras(data1, data2, num_resamples=10000, alpha=0.05):
+    
+    ## z-statistic
+    U, _ = scipy.stats.mannwhitneyu(data1, data2, method='auto')
+    n1 = len(data1)
+    n2 = len(data2)
+    mean_u = n1 * n2 / 2
+    std_u = np.sqrt(n1 * n2 * (n1 + n2 + 1) / 12)
+    z_stat = (U - mean_u) / std_u
+    print('z-statistic = ', z_stat)
+    
+    
+    ## effect size
+    r = z_stat / np.sqrt(len(data1) + len(data2))
+    print('effect size (r_mw) = ', r)
+    
+    ## CI
+    n1 = len(data1)
+    n2 = len(data2)
+    bootstrapped_r_mw = []
+    for _ in range(num_resamples):
+        indices1 = np.random.choice(range(n1), size=n1, replace=True)
+        indices2 = np.random.choice(range(n2), size=n2, replace=True)
+        sample1 = data1.iloc[indices1]
+        sample2 = data2.iloc[indices2]
+        U, _ = scipy.stats.mannwhitneyu(sample1, sample2, method='auto')
+        z_stat = (U - mean_u) / std_u
+        r_mw = z_stat / np.sqrt(len(sample1) + len(sample2))
+        bootstrapped_r_mw.append(r_mw)
+    
+    lower = np.percentile(bootstrapped_r_mw, 100 * alpha / 2)
+    upper = np.percentile(bootstrapped_r_mw, 100 * (1 - alpha / 2))
+    print('CI = ', lower, upper)
