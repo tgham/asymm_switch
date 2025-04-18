@@ -20,10 +20,8 @@ from scipy.optimize import Bounds, minimize
 import itertools
 from tqdm.auto import tqdm
 import pickle
-import seaborn as sns
 import multiprocess as mp
-from models import TI_RL, TI_SMC, TI_Remerge
-# import plotter
+from models import TI_RL, TI_SMC
 from helpers import *
 from model_init import *
 import importlib
@@ -183,10 +181,17 @@ def append_model_recovery(fit_out):
     fitting_recovery[gen_model][fitted_model]['n_trials'].extend(fit_out['n_trials'])
     fitting_recovery[gen_model][fitted_model]['nfev'].extend(fit_out['nfev'])
     fitting_recovery[gen_model][fitted_model]['nit'].extend(fit_out['nit'])
+
+    # save fitted params
     for i_fit_out in range(len(fit_out['params'])):
         for pa, par in enumerate(current_params):
             fitting_recovery[gen_model][fitted_model][par].append(fit_out['params'][i_fit_out][pa]) 
             fitting_recovery[gen_model][fitted_model][par+'_0'].append(fit_out['x0s'][i_fit_out][pa])
+
+    # save gen params
+    for par in gen_params:
+        fitting_recovery[gen_model][fitted_model]['gen_'+par].append(fit_out['gen_'+par])
+
             
     ## update progress bar
     pbar.update(1)
@@ -208,12 +213,28 @@ def append_param_recovery(fit_out):
     pbar.update(1)
 
 ## load empirical fits
-with open('useful_saves/move/fits/RL_entropy_relu.pkl', 'rb') as f:
+with open('useful_saves/move/fits/RL_revisions.pkl', 'rb') as f:
     df_fits_big = pickle.load(f)
 moi = [
-    'Q-symm','Q-asymm',
-    'Q-adapt'
+    'Q-symm',
+    'Q-asymm',
+    # 'Q-adapt-entropy',
+    'Q-adapt',
+    'Q-asymm_m2'
         ]
+model_idx = [0,1,2,3]
+model_set_idx = [0,2]
+moi_idx = np.array([
+    [0,0], # Q-symm
+    [0,1], # Q-asymm
+    # [0,2], # Q-adapt-entropy
+    [0,3], # Q-adapt
+    # [0,4], # Q-symm-P
+    # [0,5], # Q-asymm-P
+    # # [0,6], # Q-adapt-entropy-P
+    # [0,7], # Q-adapt-P
+    [2,1] # Q-asymm^2 (AKA Q-asymm_m2)  
+])
 rm_models = []
 df_fits = best_x0(df_fits_big, moi)
 for key in df_fits.keys():
@@ -245,15 +266,19 @@ if recover == 'model':
     fitting_recovery = {}
     gen_trials= {}
     tmp = {}
-    for gen_m_s in range(1):
-        for gen_m in [0,1,12]:
+    for gen_m_s in model_set_idx:
+        for gen_m in model_idx:
             gen_model = all_models[gen_m_s][gen_m]
+            if gen_model not in moi:
+                continue  
             fitting_recovery[gen_model] = {}
             gen_trials[gen_model] = pd.DataFrame()
             df_recovery[gen_model] = {}
-            for fit_m_s in range(1):
-                for fit_m in [0,1,12]:
+            for fit_m_s in model_set_idx:
+                for fit_m in model_idx:
                     fitted_model = all_models[fit_m_s][fit_m]
+                    if fitted_model not in moi:
+                        continue  
                     current_params = all_params[param_idx[fit_m_s][fit_m]]
                     fitting_recovery[gen_model][fitted_model] = {
                         'Participant': [],
@@ -268,12 +293,19 @@ if recover == 'model':
                     for param in current_params:
                         fitting_recovery[gen_model][fitted_model][param] = []
                         fitting_recovery[gen_model][fitted_model][param+'_0'] = []
+            
+                    ## we also want to save the data-generating parameters
+                    gen_params = all_params[param_idx[gen_m_s][gen_m]]
+                    for par in gen_params:
+                        fitting_recovery[gen_model][fitted_model]['gen_'+par] = []
                         
 
     ## loop through generative models
-    for gen_m_s in range(1):
-        for gen_m in [0,1,12]:
+    for gen_m_s in model_set_idx:
+        for gen_m in model_idx:
             gen_model = all_models[gen_m_s][gen_m]
+            if gen_model not in moi:
+                continue  
 
             ## Loop through participants to get full generative dataset
             print('generating '+str(n_runs)+' datasets, for each of '+str(n_fit_participants)+' participants, under ', gen_model)
@@ -312,11 +344,11 @@ if recover == 'model':
 
                     ## save simulated trials
                     gen_trials[gen_model] = pd.concat((gen_trials[gen_model], recovery_trials))
-                        
+
+
     # save sequence
     with open('useful_saves/move/recovery/'+str(n_runs)+'_runs_per_p_trials_final.pkl', 'wb') as f:
         pickle.dump(gen_trials, f)
-
 
     # ## or just load existing set of generated trials
     # print('loading gen trials...')
@@ -326,24 +358,112 @@ if recover == 'model':
     # print(gen_trials.keys())
 
     ## whittle down to the 83 post-excl participants
-    for key in gen_trials.keys():
-        gen_trials[key] = gen_trials[key].loc[gen_trials[key]['Participant'].isin(participants)]
+    # for key in gen_trials.keys():
+    #     gen_trials[key] = gen_trials[key].loc[gen_trials[key]['Participant'].isin(participants)]
 
     ## add back in the data-generating parameters...
+    for gen_model in moi:
+        current_params = model_params[gen_model]
+        for par in current_params:
+            gen_trials[gen_model]['gen_'+par] = np.zeros(len(gen_trials[gen_model]))
+            for p in participants:
+                gen_trials[gen_model].loc[gen_trials[gen_model]['Participant']==p, 'gen_'+par] = df_fits[gen_model].loc[df_fits[gen_model]['Participant']==p][par].to_numpy().squeeze()
+
+
+
+
+    ### ALTERNATIVE APPROACH - generate data from 1000 'participants', for each model, where each participant has params drawn from gaussians centred on the empirical params
+    # n_fit_participants = 3
+    # fit_participants = np.arange(n_fit_participants)
+
+    # ## get the means and stds of the empirical params
+    # param_means = {}
+    # param_stds = {}
     # for gen_model in moi:
     #     current_params = model_params[gen_model]
+    #     param_means[gen_model] = df_fits[gen_model][current_params].mean()
+    #     param_stds[gen_model] = df_fits[gen_model][current_params].std()
+    #     print('generating data under ', gen_model, ' with params: ', current_params)
     #     for par in current_params:
-    #         gen_trials[gen_model]['gen_'+par] = np.zeros(len(gen_trials[gen_model]))
-    #         for p in participants:
-    #             gen_trials[gen_model].loc[gen_trials[gen_model]['Participant']==p, 'gen_'+par] = df_fits[gen_model].loc[df_fits[gen_model]['Participant']==p][par].to_numpy().squeeze()
+    #         print(par, param_means[gen_model][par], param_stds[gen_model][par])
+
+    # ## generate the 1000 datasets for each model - i.e. for each of 100 participants-param-trial sets, run the experiment 10 times
+    # for gen_m_s in model_set_idx:
+    #     for gen_m in model_idx:
+    #         gen_model = all_models[gen_m_s][gen_m]
+    #         if gen_model not in moi:
+    #             continue  
+    #         print('generating '+str(n_runs)+' datasets, for each of '+str(n_fit_participants)+' participants, under ', gen_model)
+    #         for p_n in tqdm(range(n_fit_participants)):
+
+    #             ## generate trial set
+    #             switch = switches[p_n % 2]
+    #             trials = generate_sequences(p_n, n_items, n_blocks, switch_block, switch, switch_type)
+
+    #             ## draw params from gaussians centred on the empirical params
+    #             params = np.zeros(len(model_params[gen_model]))
+    #             current_params = model_params[gen_model]
+    #             for i, par in enumerate(model_params[gen_model]):
+    #                 params[i] = np.random.normal(param_means[gen_model][par], param_stds[gen_model][par])
+
+    #                 ## note: unless this param is a0, this param must be non-negative
+    #                 if par != 'a0':
+    #                     params[i] = np.abs(params[i])
+
+    #             ## save these generating params (and gen model?)
+    #             for pi, par in enumerate(current_params):
+    #                 trials['gen_'+par] = np.zeros(len(trials))
+    #                 trials['gen_'+par] = params[pi]
+    #             trials['gen_model'] = np.zeros(len(trials))
+    #             trials['gen_model'] = gen_model
+
+    #             ## generate n_runs datasets under the current generative model and parameter setting
+    #             for sim_p in range(n_runs):
+    #                 recovery_trials = trials.copy()
+    #                 RL = TI_RL(n_items)
+    #                 RL.run(params, recovery_trials, gen_m, gen_m_s, fit = False, recovery = True)
+
+    #                 ## add choices back to the trial df, representing them as the value of the chosen item
+    #                 recovery_trials['Model_Choice'] = RL.m_choices
+    #                 recovery_trials['Model_Chosen_Item'] = np.zeros(len(recovery_trials))
+    #                 recovery_trials.loc[recovery_trials['Model_Choice'] == 0, 'Model_Chosen_Item'] = recovery_trials.loc[recovery_trials['Model_Choice'] == 0, 'Item_1']
+    #                 recovery_trials.loc[recovery_trials['Model_Choice'] == 1, 'Model_Chosen_Item'] = recovery_trials.loc[recovery_trials['Model_Choice'] == 1, 'Item_2']
+
+    #                 ## or, convert model choice probabilities into binary choices
+    #                 recovery_trials['gen_choices'] = np.random.binomial(1, RL.CP)
+
+    #                 ## save the ID of the simulation (i.e. the participant whose params we used, and the run number)
+    #                 recovery_trials['Simulated Participant'] = np.zeros(len(recovery_trials))
+    #                 recovery_trials['Simulated Participant'] = sim_p
+    #                 recovery_trials['Sim_ID'] = np.zeros(len(recovery_trials))
+    #                 recovery_trials['Sim_ID'] = 'p'+str(p_n)+'_sim'+str(sim_p)
+
+    #                 ## save simulated trials
+    #                 gen_trials[gen_model] = pd.concat((gen_trials[gen_model], recovery_trials))
+
+                        
+    # # save sequence
+    # with open('useful_saves/move/recovery/'+str(n_runs)+'_runs_per_p_trials_new_method.pkl', 'wb') as f:
+    #     pickle.dump(gen_trials, f)
+
+
+    # ## or just load existing set of generated trials
+    # print('loading gen trials...')
+    # with open('useful_saves/move/recovery/'+str(n_runs)+'_runs_per_p_trials_d.pkl', 'rb') as f:
+    #     gen_trials = pd.read_pickle(f)
+    # print('loading complete')
+    # print(gen_trials.keys())
 
 
     ### model recovery loop
 
     ## for each generative model
-    for gen_m_s in range(1):
-        for gen_m in [0,1,12]:
+    for gen_m_s in model_set_idx:
+        for gen_m in model_idx:
             gen_model = all_models[gen_m_s][gen_m]
+            gen_params = all_params[param_idx[gen_m_s][gen_m]]
+            if gen_model not in moi:
+                continue  
 
             ## get sim_IDs for later looping
             sim_IDs = gen_trials[gen_model]['Sim_ID'].unique()
@@ -351,11 +471,14 @@ if recover == 'model':
 
 
             ## Fit each model to the simulated choice data
-            for fit_m_s in range(1):
-                for fit_m in [0,1,12]:
+            for fit_m_s in model_set_idx:
+                for fit_m in model_idx:
 
                     ## get fitting model's param settings
                     fitted_model = all_models[fit_m_s][fit_m]
+                    if fitted_model not in moi:
+                        print('skipping ',fitted_model)
+                        continue  
                     current_params = all_params[param_idx[fit_m_s][fit_m]]
                     x0s = [set_0 for i_set_0, set_0 in enumerate(all_x0s) if i_set_0 in param_idx[fit_m_s][fit_m]]
                     x0s = list(itertools.product(*x0s))
@@ -363,10 +486,10 @@ if recover == 'model':
                     lb = all_lb[param_idx[fit_m_s][fit_m]]
                     lb[lb==0] = np.finfo(float).tiny
                     bounds = Bounds(lb,ub)
+                    print('fitting ', fitted_model, ' to ', gen_model)
                     print('current params',current_params)
                     print('x0s: ',x0s)
                     print('bounds: ',bounds)
-                    print('fitting ', fitted_model, ' to ', gen_model)
 
                     ## unparallelised
                     if parallel == 0:
@@ -376,7 +499,7 @@ if recover == 'model':
                             df_trials = gen_trials[gen_model].loc[gen_trials[gen_model]['Sim_ID'] == sim_ID]
                             fit = True
                             recovery = True
-                            fit_out = fit_model(fit_m,fit_m_s, current_params, df_trials, sim_ID, x0s, bounds, mini, minimize_method_opts, model_type, fit, recovery)
+                            fit_out = fit_model(fit_m,fit_m_s, gen_params, df_trials, sim_ID, x0s, bounds, mini, minimize_method_opts, model_type, fit, recovery)
                             
                             # consolidate p's data 
                             fitting_recovery[gen_model][fitted_model]['Participant'].extend(fit_out['Participant'])
@@ -387,26 +510,32 @@ if recover == 'model':
                             fitting_recovery[gen_model][fitted_model]['nit'].extend(fit_out['nit'])
                             print(fit_out)
 
+                            ## save the fitted params
                             for i_fit_out in range(len(fit_out['params'])):
                                 for pa, par in enumerate(current_params):
                                     fitting_recovery[gen_model][fitted_model][par].append(fit_out['params'][i_fit_out][pa]) 
                                     fitting_recovery[gen_model][fitted_model][par+'_0'].append(fit_out['x0s'][i_fit_out][pa])
+
+                            ## save the generative params
+                            for par in gen_params:
+                                fitting_recovery[gen_model][fitted_model]['gen_'+par].append(fit_out['gen_'+par])
+                                # fitting_recovery[gen_model][fitted_model]['gen_'+par].append(df_trials['gen_'+par].iloc[0])
 
 
                     ## parallelised
                     elif parallel == 1:
                         
                         ## start pool
-                        n_cores = 30
+                        n_cores = 75
                         pool = mp.Pool(np.min([n_simulations, n_cores]))
-                        print("beginning parallel fit with ",mini,', n_simulations = ',n_simulations, ', n_cores = ', n_cores)
                         fit = True
                         recovery = True
 
                         ## fit to multiple participants at once
                         if __name__ == '__main__':
+                            print("beginning parallel fit with ",mini,', n_simulations = ',n_simulations, ', n_cores = ', n_cores)
                             pbar = tqdm(total = n_simulations)
-                            fit_out = [pool.apply_async(fit_model, args = (fit_m, fit_m_s, current_params, gen_trials[gen_model].loc[(gen_trials[gen_model]['Sim_ID'] == sim_ID)
+                            fit_out = [pool.apply_async(fit_model, args = (fit_m, fit_m_s, gen_params, gen_trials[gen_model].loc[(gen_trials[gen_model]['Sim_ID'] == sim_ID)
                                                                                         #  &(gen_trials[gen_model]['Switched']=='pre')
                                                                                         # &((gen_trials[gen_model]['Block']<4 )| ((gen_trials[gen_model]['Block']==4) & (gen_trials[gen_model]['Item_distance']<n_items-1)))
                                                                                         ]
@@ -424,15 +553,32 @@ if recover == 'model':
 
                     ## save dictionary as df
                     df_recovery[gen_model][fitted_model] = pd.DataFrame.from_dict(fitting_recovery[gen_model][fitted_model])
-                    with open('useful_saves/move/recovery/'+str(n_runs)+'_runs_per_p_fits_again.pkl', 'wb') as f:
+                    with open('useful_saves/move/recovery/'+str(n_runs)+'_runs_per_p_fits_revisions_all_again.pkl', 'wb') as f:
                         pickle.dump(df_recovery, f)
-
-
+                    
+                    ## close pbar
+                    print('finished fitting ', fitted_model, ' to ', gen_model)
+                    print('mean loss:', np.mean(df_recovery[gen_model][fitted_model]['loss']))
+                    pbar.close()
+                    print()
 
 
 
 ## param recovery
 elif recover == 'param':
+
+    ##  Q-asymm and Q-adapt
+    model_set_idx = [0]
+    model_idx = [1,3]
+
+    ## or, now also asymm^2)
+    # model_set_idx = [2]
+    # model_idx = [1]
+    
+    ## or, now also entropy
+    # model_set_idx = [0]
+    # model_idx = [2]
+
     
     ## initialise the whole gamut of dataframes for the recovery
     print('param recovery')
@@ -441,8 +587,8 @@ elif recover == 'param':
     fitting_param = {}
     gen_trials= {}
     tmp = {}
-    for gen_m_s in range(1):
-        for gen_m in [1,12]: # i.e. just Q-asymm, Q-adapt
+    for gen_m_s in model_set_idx:
+        for gen_m in model_idx: 
             gen_model = all_models[gen_m_s][gen_m] ## unlike in the model recovery, the generative model is also the fitted model
             fitting_param[gen_model] = {}
             gen_trials[gen_model] = pd.DataFrame()
@@ -473,19 +619,30 @@ elif recover == 'param':
             'eta': np.linspace(base,10, n_steps),
             'tauI': np.linspace(base,1, n_steps)
         },
+        'Q-adapt-entropy':{
+            'a0': np.linspace(-0.5,0.5, n_steps),
+            'eta': np.linspace(base,10, n_steps),
+            'tauI': np.linspace(base,1, n_steps),
+        },
         'Q-adapt':{
             'a0': np.linspace(-0.5,0.5, n_steps),
             'eta': np.linspace(base,10, n_steps),
             'tauI': np.linspace(base,1, n_steps),
             'meta': np.linspace(base,1, n_steps)
-
+        },
+        'Q-asymm_m2':{
+            'a1': np.linspace(base,0.5, n_steps),
+            'a2': np.linspace(base,0.5, n_steps),
+            'eta': np.linspace(base,10, n_steps),
+            'tauI': np.linspace(base,1, n_steps),
+            'omi1': np.linspace(base,0.5, n_steps),
+            'omi2': np.linspace(base,0.5, n_steps)
         }
     }
 
-
     ## generate data under each generative model
-    for gen_m_s in range(1):
-        for gen_m in [1,12]:
+    for gen_m_s in model_set_idx:
+        for gen_m in model_idx:
             gen_model = all_models[gen_m_s][gen_m]
             print('generating data under ', gen_model)
 
@@ -535,7 +692,7 @@ elif recover == 'param':
                     
 
     # save sequence
-    with open('useful_saves/move/recovery/param_recovery_trials_'+str(n_steps)+'_steps_relu.pkl', 'wb') as f:
+    with open('useful_saves/move/recovery/param_recovery_trials_'+str(n_steps)+'_steps.pkl', 'wb') as f:
         pickle.dump(gen_trials, f)
 
     ## or, just load an existing dataset
@@ -551,8 +708,8 @@ elif recover == 'param':
     ### param recovery loop
 
     ## for each gen (and hence fitting) model
-    for m_s in range(1):
-        for m in np.array([1,12]):
+    for m_s in model_set_idx:
+        for m in model_idx:
 
             ## get model's param settings 
             current_model = all_models[m_s][m]
@@ -606,7 +763,7 @@ elif recover == 'param':
             elif parallel == 1:
                     
                 ## start pool
-                n_cores = 32
+                n_cores = 50
                 pool = mp.Pool(np.min([n_simulations, n_cores]))
                 print("beginning parallel fit with ",mini,', n_simulations = ',n_simulations, ', n_cores = ', n_cores)
                 fit = True
@@ -633,7 +790,7 @@ elif recover == 'param':
 
             ## save dictionary as df
             df_param[current_model] = pd.DataFrame.from_dict(fitting_param[current_model])
-            with open('useful_saves/move/recovery/param_recovery_fits_relu.pkl', 'wb') as f:
+            with open('useful_saves/move/recovery/param_recovery_fits_revisions.pkl', 'wb') as f:
                 pickle.dump(df_param, f)
 
 
