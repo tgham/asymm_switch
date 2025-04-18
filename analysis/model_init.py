@@ -42,15 +42,13 @@ minimize_method_opts = {
 ## set names of models and params
 if model_type == 'RL':
         ### set the params of interest for each model
-    all_params = np.array(['a1','a2','a0','eta','tauI','tauP','gam','lam','eps','omi1','omi2','meta','beta','evo_var', 'lmbda', 'kappa', 'coef'])
-    # all_models = np.array((['Q1*','Q2*','Q3*', 'Q1*P','Q2*P','Q3*P','Q1*Pi','Q2*Pi', 'Q3*Pi', 'Q1','Q2','Q3','Q3*d','Q1*_conf','Q2*_conf','Q3*_conf',], 
+    all_params = np.array(['a1','a2','a0','eta','tauI','tauP','gam','lam','eps','omi1','omi2','meta','beta','RPE_0','evo_var', 'lmbda', 'kappa', 'coef'])
     all_models = np.array((
-        ['Q-symm','Q-asymm','Q-adapt-entropy', 'Q-symm-P','Q-asymm-P','Q-adapt-P' ,'Q1*Pi','Q2*Pi', 'Q3*Pi', 'Q1','Q2','Q3','Q-adapt','Q-adapt-d-P','Q1*_conf','Q2*_conf','Q3*_conf','Q-PH'], 
-        ['Q-symm_m1','Q-asymm_m1','Q-adapt_m1', 'Q-symm-P_m1','Q-asymm-P_m1','Q-adapt-P_m1' ,'Q1*Pi_m1','Q2*Pi_m1', 'Q3*Pi_m1', 'Q1_m1','Q2_m1','Q3_m1','Q-adapt-d_m1','Q-adapt-d-P_m1','Q1*_conf_m1','Q2*_conf_m1','Q3*_conf_m1','Q-PH_m1'], 
-        ['Q-symm_m2','Q-asymm_m2','Q-adapt_m2', 'Q-symm-P_m2','Q-asymm-P_m2','Q-adapt-P_m2' ,'Q1*Pi_m2','Q2*Pi_m2', 'Q3*Pi_m2', 'Q1_m2','Q2_m2','Q3_m2','Q-adapt-d_m2','Q-adapt-d-P_m2','Q1*_conf_m2','Q2*_conf_m2','Q3*_conf_m2','Q-PH_m2'], 
-                            # ['Q1*_m1','Q2*_m1','Q3*_m1', 'Q1*P_m1','Q2*P_m1','Q3*P_m1','Q1*Pi_m1','Q2*Pi_m1', 'Q3*Pi_m1', 'Q1_m1','Q2_m1','Q3_m1','Q3*d_m1'],
-                            # ['Q1*_m2','Q2*_m2','Q3*_m2', 'Q1*P_m2','Q2*P_m2','Q3*P_m2','Q1*Pi_m2','Q2*Pi_m2', 'Q3*Pi_m2', 'Q1_m2','Q2_m2','Q3_m2','Q3*d_m2']
-                            ))
+        ['Q-symm',        'Q-asymm',        'Q-adapt-entropy',        'Q-adapt',         'Q-symm-P',        'Q-asymm-P',        'Q-adapt-entropy-P',     'Q-adapt-P',    'Q1*Pi',        'Q2*Pi',        'Q3*Pi',        'Q1',        'Q2',        'Q3',           'Q-adapt-PH',        'Q-adapt-PH-d'], 
+        ['Q-symm_m1',     'Q-asymm_m1',     'Q-adapt-entropy_m1',      'Q-adapt_m1',     'Q-symm-P_m1',     'Q-asymm-P_m1',     'Q-adapt-entropy-P_m1',  'Q-adapt-P_m1', 'Q1*Pi_m1',     'Q2*Pi_m1',     'Q3*Pi_m1',     'Q1_m1',     'Q2_m1',     'Q3_m1',        'Q-adapt-PH_m1',     'Q-adapt-PH-d_m1'],
+        ['Q-symm_m2',    'Q-asymm_m2',     'Q-adapt-entropy_m2',      'Q-adapt_m2',     'Q-symm-P_m2',     'Q-asymm-P_m2',     'Q-adapt-entropy-P_m2',  'Q-adapt-P_m2',   'Q1*Pi_m2',     'Q2*Pi_m2',     'Q3*Pi_m2',     'Q1_m2',     'Q2_m2',     'Q3_m2',        'Q-adapt-PH_m2',     'Q-adapt-PH-d_m2'],
+        ['Q-symm_conf',   'Q-asymm_conf',   'Q-adapt-entropy_conf',  'Q-adapt_conf',    'Q-symm-P_conf',   'Q-asymm-P_conf',   'Q-adapt-entropy-P_conf', 'Q-adapt-P_conf', 'Q1*Pi_conf',   'Q2*Pi_conf',   'Q3*Pi_conf',   'Q1_conf',   'Q2_conf',   'Q3_conf',      'Q-adapt-PH_conf',   'Q-adapt-PH-d_conf']
+    ))
 
     n_models = len(all_models[0])
 
@@ -60,68 +58,87 @@ if model_type == 'RL':
         (
         [0,3,4], #Q1*
         [0,1,3,4], #Q2*
-        [2,3,4], #Q3*
+        [2,3,4], #Q3* (entropy)
+        [2,3,4,11], #Q3*d (parameterised entropy)
         [0,3,4,6], #Q1*P
         [0,1,3,4,6], #Q2*P
-        [2,3,4,6], #Q3*P
+        [2,3,4,6], #Q3*P (entropy)
+        [2,3,4,6,11], #Q3*dP (parameterised entropy)
         [0,3,4,5,6,7], #Q1*Pi
         [0,1,3,4,5,6,7], #Q2*Pi
         [2,3,4,5,6,7], #Q3*Pi
         [0,4], #Q1
         [0,1,4], #Q2
         [2,4], #Q3
-        [2,3,4,11], #Q3*d
-        [2,3,4,6,11], #Q3*dP
-        [0,3,4,11], #Q1*_conf
-        [0,1,3,4,11], #Q2*_conf
-        [2,3,4,11], #Q3*_conf
-        [0,1,3,4,11] # gershman/pearce hall etc.
+        # [0,1,3,4,11] # gershman/pearce hall etc. 
+        [2,3,4,12,13], # gershman/pearce hall etc. (standard entropy)
+        [2,3,4,11,12,13] # gershman/pearce hall etc. (parameterised entropy)
+
         ), 
         (
         [0,3,4,9], #Q1*_m1
         [0,1,3,4,9], #Q2*_m1
-        [2,3,4,9], #Q3*_m1
-        [0,3,4,5,6,9], #Q1*P_m1
-        [0,1,3,4,5,6,9], #Q2*P_m1
-        [2,3,4,5,6,9], #Q3*P_m1
+        [2,3,4,9], #Q3*_m1 (entropy)
+        [2,3,4,9,11], #Q3*_m1 (parameterised entropy)
+        [0,3,4,6,9], #Q1*P_m1
+        [0,1,3,4,6,9], #Q2*P_m1
+        [2,3,4,6,9], #Q3*P_m1
+        [2,3,4,6,9,11], #Q3*P_m1 (param)
         [0,3,4,5,6,7,9], #Q1*Pi_m1
         [0,1,3,4,5,6,7,9], #Q2*Pi_m1
         [2,3,4,5,6,7,9], #Q3*Pi_m1
         [0,4,9], #Q1_m1
         [0,1,4,9], #Q2_m1
         [2,4,9], #Q3_m1
-        [2,3,4,9], #Q3*d_m1
-        [2,3,4,9,11], #Q3*dP_m1
-        [0,3,4,9,11], #Q1*_conf
-        [0,1,3,4,9,11], #Q2*_conf
-        [2,3,4,9,11], #Q3*_conf
-        [0,1,4,9,11] # gershman/pearce hall etc.
+        # [0,1,4,9,11] # gershman/pearce hall etc.
+        [2,3,4,9,12], # gershman/pearce hall etc. (standard entropy)
+        [2,3,4,9,11,12] # gershman/pearce hall etc. (parameterised entropy)
         ), 
         (
         [0,3,4,9,10], #Q1*_m2
         [0,1,3,4,9,10], #Q2*_m2
-        [2,3,4,9,10], #Q3*_m2
-        [0,3,4,5,6,9,10], #Q1*P_m2
-        [0,1,3,4,5,6,9,10], #Q2*P_m2
-        [2,3,4,5,6,9,10], #Q3*P_m2
+        [2,3,4,9,10], #Q3*_m2 (entropy)
+        [2,3,4,9,10,11], #Q3*_m2 (param entropy)
+        [0,3,4,6,9,10], #Q1*P_m2
+        [0,1,3,4,6,9,10], #Q2*P_m2
+        [2,3,4,6,9,10], #Q3*P_m2 (entropy)
+        [2,3,4,6,9,10,11], #Q3*P_m2 (param entropy)
         [0,3,4,5,6,7,9,10], #Q1*Pi_m2
         [0,1,3,4,5,6,7,9,10], #Q2*Pi_m2
         [2,3,4,5,6,7,9,10], #Q3*Pi_m2
         [0,4,9,10], #Q1_m2
         [0,1,4,9,10], #Q2_m2
         [2,4,9,10], #Q3_m2
-        [2,3,4,9,10], #Q3*d_m2
-        [2,3,4,9,10,11], #Q3*dP_m2
-        [0,3,4,9,10,11], #Q1*_conf
-        [0,1,3,4,9,10,11], #Q2*_conf
-        [2,3,4,9,10,11], #Q3*_conf
-        [0,1,3,4,9,10,11] # gershman/pearce hall etc.
+        # [0,1,3,4,9,10,11] # gershman/pearce hall etc.
+        [2,3,4,9,10,12], # gershman/pearce hall etc. (standard entropy)
+        [2,3,4,9,10,11,12] # gershman/pearce hall etc. (parameterised entropy)
         ), 
+
+        ## repeat for conf models, which have the same parameters as the standard models
+        (
+        [0,3,4], #Q1*_conf
+        [0,1,3,4], #Q2*_conf
+        [2,3,4], #Q3*_conf (entropy)
+        [2,3,4,11], #Q3*d_conf (parameterised entropy)
+        [0,3,4,6], #Q1*P_conf
+        [0,1,3,4,6], #Q2*P_conf
+        [2,3,4,6], #Q3*P_conf (entropy)
+        [2,3,4,6,11], #Q3*dP_conf (parameterised entropy)
+        [0,3,4,5,6,7], #Q1*Pi_conf
+        [0,1,3,4,5,6,7], #Q2*Pi_conf
+        [2,3,4,5,6,7], #Q3*Pi_conf
+        [0,4], #Q1_conf
+        [0,1,4], #Q2_conf
+        [2,4], #Q3_conf
+        # [0,1,3,4,11] # gershman/pearce hall etc.
+        [2,3,4,12,13], # gershman/pearce hall etc. (standard entropy)
+        [2,3,4,11,12,13] # gershman/pearce hall etc. (parameterised entropy)
+        ),
     ))
 
     #get names of params for each model
     model_params = {}
-    for model_set in range(3):
+    for model_set in range(4):
         for m in range(n_models):
             model_params[all_models[model_set][m]] = all_params[param_idx[model_set][m]]
 
@@ -144,6 +161,8 @@ if model_type == 'RL':
     omi_asymm = 0.5
     a0 = 0.025
     meta = 1
+    beta = 0.05
+    RPE_0 = 0.05
 
 
     #multiple initial points
@@ -161,12 +180,17 @@ if model_type == 'RL':
     omi2_0s = a2_0s.copy()
     a0_0s = np.array([0.01])
     meta_0s = np.array([1])
-    all_x0s = np.array((a1_0s, a2_0s, a0_0s, eta_0s, tauI_0s, tauP_0s, gam_0s, lam_0s, eps_0s, omi1_0s, omi2_0s, meta_0s), dtype = object)
+    beta_0s = np.array([0.05])
+    RPE_0_0s = np.array([0.05])
+    all_x0s = np.array((a1_0s, a2_0s, a0_0s, eta_0s, tauI_0s, tauP_0s, gam_0s, lam_0s, eps_0s, omi1_0s, omi2_0s, meta_0s, beta_0s, RPE_0_0s), dtype = object)
 
     #set bounds for all params
-    all_params_0 = np.array([a1, a2,    a0, eta, tauI, tauP, gam,lam,  eps, omi1, omi2, meta])
-    all_lb = np.array(      [0,   0,   -0.5, 0,  0,    0,    0,   0,   0,    -0.5,     0,  0])
-    all_ub = np.array(      [0.5, 0.5,  0.5, 1,  1,    1,    1,   10,  0.2,  0.5,  0.5,    1])
+    all_params_0 = np.array([a1, a2,    a0, eta, tauI, tauP, gam,lam,  eps,   omi1, omi2,    meta, beta, RPE_0])
+    all_lb = np.array(      [0,   0,   -0.5, 0,   0,    0,    0,   0,   0,    0,    0,       0,    0,     0])
+    all_ub = np.array(      [0.5, 0.5,  0.5, 10,  1,    1,    1,   10,  0.2,  0.5,  0.5,     1,    1,     1])
+    all_params_0 = np.array([a1, a2,    a0, eta, tauI, tauP, gam,lam,  eps, omi1, omi2, meta, beta, RPE_0])
+    all_lb = np.array(      [0,   0,   -0.5, 0,   0,    0,    0,   0,   0,    0,    0,  0,  0,   0])
+    all_ub = np.array(      [0.5, 0.5,  0.5, 10,  1,    1,    1,   10,  0.2,  0.5,  0.5,    1,  1,   1])
 
     ## set number of free params
     n_free = {}
