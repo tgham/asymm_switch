@@ -3,11 +3,14 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 import scipy
+from helpers import *
 from tqdm.auto import tqdm
 import itertools
-# import statannot
+import statannot
+from statannotations.Annotator import Annotator
 from matplotlib.animation import FuncAnimation
 from IPython.display import Video, HTML
+from scipy.ndimage import gaussian_filter1d
 
 ### plot Low, Med and High valued comparisons
 def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', plot_split = False, bin_width=70, step = 1, min_periods = 1, extremes = True, title = None):
@@ -21,7 +24,10 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
     n_trials = int(all_data['Trial'].max())
     inc_items = np.arange(2,n_items)
     n_pre_trials = int(all_data.loc[all_data['Switched']=='pre']['Trial'].max())
-    n_post_trials = int(all_data.loc[all_data['Switched']=='post']['Trial'].max())
+    try:
+        n_post_trials = int(all_data.loc[all_data['Switched']=='post']['Trial'].max())
+    except:
+        pass
     lw = []
 
     ## prepare the splits of the data (e.g. the entire learning curve vs pre/post switch)
@@ -38,6 +44,14 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
             ]
 
 
+    ## create column for relative trial, i.e. trial relative to the switch
+    all_data['Rel_Trial'] = np.zeros(len(all_data))+np.nan
+    for p in all_data['Participant'].unique():
+        switch_trial = all_data.loc[(all_data['Participant']==p) & (all_data['Switched']=='post')]['Trial'].min()-1
+        all_data.loc[(all_data['Participant']==p),'Rel_Trial'] = all_data.loc[(all_data['Participant']==p),'Trial']-switch_trial
+    rel_trial_min = np.min(all_data['Rel_Trial'])
+    rel_trial_max = np.max(all_data['Rel_Trial'])
+    # print(rel_trial_min, rel_trial_max)
 
     ## loop through models
     for a, ax in enumerate(axs.reshape(-1)):
@@ -76,7 +90,8 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
                                                 (all_data['Item_1'].isin(inc_items)) 
                                                 &(all_data['Item_2'].isin(inc_items))
                                                 &(all_data['Switched'].isin(switch))
-                                                    ].groupby(['Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
+                                                    # ].groupby(['Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
+                                                ].groupby(['Rel_Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
                     to_plot_low = all_data.loc[(all_data['Direction'] == current_direction)
                                                 &(all_data['Feedback_on']==0)
                                                 &(all_data['Item_distance']>1)
@@ -84,7 +99,8 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
                                                 &(all_data['Item_1'].isin(inc_items)) 
                                                 &(all_data['Item_2'].isin(inc_items))
                                                 &(all_data['Switched'].isin(switch))
-                                                    ].groupby(['Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
+                                                    # ].groupby(['Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
+                                                ].groupby(['Rel_Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
                     to_plot_med = all_data.loc[(all_data['Direction'] == current_direction)
                                                 &(all_data['Feedback_on']==0)
                                                 &(all_data['Item_distance']>1)
@@ -92,7 +108,8 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
                                                 &(all_data['Item_1'].isin(inc_items)) 
                                                 &(all_data['Item_2'].isin(inc_items))
                                                 &(all_data['Switched'].isin(switch))
-                                                    ].groupby(['Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
+                                                    # ].groupby(['Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
+                                                ].groupby(['Rel_Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
                     to_plot_high = all_data.loc[(all_data['Direction'] == current_direction)
                                                 &(all_data['Feedback_on']==0)
                                                 &(all_data['Item_distance']>1)
@@ -100,7 +117,8 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
                                                 &(all_data['Item_1'].isin(inc_items))
                                                 &(all_data['Item_2'].isin(inc_items))
                                                 &(all_data['Switched'].isin(switch))
-                                                    ].groupby(['Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
+                                                    # ].groupby(['Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
+                                                ].groupby(['Rel_Trial']).mean('Accuracy '+current_model)['Accuracy '+current_model]
                 elif extremes == 2: ## potentially need to add &(all_data['Item_distance']>1) somewhere here
                     to_plot_adj = all_data.loc[(all_data['Direction'] == current_direction)&(all_data['Feedback_on']==1)
                                                 &(all_data['Item_1'].isin(inc_items))
@@ -132,16 +150,50 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
                 ## plot
                     
                 # rolling average
-                to_plot_adj = to_plot_adj.rolling(window=bin_width, center=True, min_periods = min_periods, step=step).mean()
-                to_plot_low = to_plot_low.rolling(window=bin_width, center=True, min_periods = min_periods, step=step).mean()
-                to_plot_med = to_plot_med.rolling(window=bin_width, center=True, min_periods = min_periods, step=step).mean()
-                to_plot_high = to_plot_high.rolling(window=bin_width, center=True, min_periods = min_periods, step=step).mean()
+                to_plot_adj = to_plot_adj.rolling(
+                    window=bin_width,
+                    center=True,
+                    min_periods=min_periods,
+                    step=step,
+                ).mean()
+                to_plot_low = to_plot_low.rolling(
+                    window=bin_width,
+                    center=True,
+                    min_periods=min_periods,
+                    step=step,
+                ).mean()
+                to_plot_med = to_plot_med.rolling(
+                    window=bin_width,
+                    center=True,
+                    min_periods=min_periods,
+                    step=step,
+                ).mean()
+                to_plot_high = to_plot_high.rolling(
+                    window=bin_width,
+                    center=True,
+                    min_periods=min_periods,
+                    step=step,
+                ).mean()
+
+                ## or, another smoothing technique using gaussian_filter1d
+                # to_plot_adj = pd.Series(gaussian_filter1d(to_plot_adj.values, sigma=bin_width//5), index=to_plot_adj.index)
+                # to_plot_low = pd.Series(gaussian_filter1d(to_plot_low.values, sigma=bin_width//5), index=to_plot_low.index)
+                # to_plot_med = pd.Series(gaussian_filter1d(to_plot_med.values, sigma=bin_width//5), index=to_plot_med.index)
+                # to_plot_high = pd.Series(gaussian_filter1d(to_plot_high.values, sigma=bin_width//5), index=to_plot_high.index)
+
+
                 
                 # reindex
-                to_plot_adj = to_plot_adj.reindex(trial_ranges[si])
-                to_plot_low = to_plot_low.reindex(trial_ranges[si])
-                to_plot_med = to_plot_med.reindex(trial_ranges[si])
-                to_plot_high = to_plot_high.reindex(trial_ranges[si])
+                # to_plot_adj = to_plot_adj.reindex(trial_ranges[si])
+                # to_plot_low = to_plot_low.reindex(trial_ranges[si])
+                # to_plot_med = to_plot_med.reindex(trial_ranges[si])
+                # to_plot_high = to_plot_high.reindex(trial_ranges[si])
+                ## if we're plotting relative to the switch, these trial ranges need to be adjusted (i.e. min and max relative trial)
+                to_plot_adj = to_plot_adj.reindex(range(int(np.min(all_data['Rel_Trial'])), int(np.max(all_data['Rel_Trial']))+1))
+                to_plot_low = to_plot_low.reindex(range(int(np.min(all_data['Rel_Trial'])), int(np.max(all_data['Rel_Trial']))+1))
+                to_plot_med = to_plot_med.reindex(range(int(np.min(all_data['Rel_Trial'])), int(np.max(all_data['Rel_Trial']))+1))
+                to_plot_high = to_plot_high.reindex(range(int(np.min(all_data['Rel_Trial'])), int(np.max(all_data['Rel_Trial']))+1))
+                
 
                 # plot
                 l = sns.lineplot(x = to_plot_low.index, y=to_plot_low.values, ax = ax, lw=3.5, label = 'Low', color = 'darkslateblue', legend = False)
@@ -151,6 +203,8 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
                 l.set_ylabel('')
 
                 # get the limits of the split (for the switch line)
+                # ax.set_xlim(0-bin_width/2, n_trials+bin_width/2)
+                # ax.set_xlim(0, n_trials)
                 if plot_split:
                     if si == 0:
                         xmaxs = np.array([
@@ -170,7 +224,8 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
                         lw.append(np.min(xmins))
                     # split_x = np.mean(lw)
                 else:
-                    _, xmax = ax.get_xlim()
+                    xmin, xmax = ax.get_xlim()
+                    # print(xmin, xmax)
                     split_x = np.linspace(0, xmax*6/(6+1),6)[3] + (bin_width/4)
                     lw.append(split_x - bin_width/4)
                     lw.append(split_x + bin_width/4)
@@ -300,12 +355,18 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
 
 
         ## shade the post-changepoint area
-        _, xmax = ax.get_xlim()
-        x_half = np.linspace(0, xmax*6/(6+1),6)[3]
-        u = ax.axvspan(xmin = x_half, xmax = xmax, color = 'r', alpha = 0.08)
+        # xmin, xmax = ax.get_xlim()
+        # x_half = np.linspace(xmin, xmax*6/(6+1),6)[3]
+        # u = ax.axvspan(xmin = x_half, xmax = xmax, color = 'r', alpha = 0.08)
+
+        ## or, do this using the relative trials, i.e. from rel_trial 0
+        xmin, xmax = ax.get_xlim()
+        u = ax.axvspan(xmin = 0, xmax = xmax, color = 'r', alpha = 0.08)
 
 
         ## axes formatting
+        if current_model == 'Q-asymm_m2':
+            current_model = "Q-asymm²"
         ax.text(.02,.9,current_model,
             horizontalalignment='left',
             transform=ax.transAxes,
@@ -325,6 +386,7 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
         ax.tick_params(axis='y', labelsize=13)
     axes_formatting(figs, axs)
 
+
     # ## add legend to mark the two plots, but not the switch line
     handles, labels = ax.get_legend_handles_labels()
     if value_split == 'lmh':
@@ -336,7 +398,8 @@ def low_med_high(all_data, subplot_splits, subplot_dims, value_split = 'lmh', pl
     axs[0][-1].legend(handles=handles, labels=labels, loc='upper right', bbox_to_anchor=(1.6, 1.025), title = legend_title)
     
     ## overall axes and titles
-    supx = figs.text(0.5, 0.01, 'Block', ha='center', va='center', fontsize=16)
+    # supx = figs.text(0.5, 0.01, 'Block', ha='center', va='center', fontsize=16)
+    supx = figs.text(0.5, 0.01, 'Trial', ha='center', va='center', fontsize=16)
     supy = figs.text(0.0, 0.5, 'P(correct)', ha='center', va='center', rotation='vertical', fontsize=16)
     figs.subplots_adjust(wspace=0)
     figs.subplots_adjust(hspace=0)
@@ -751,40 +814,42 @@ def plot_evidence(evidence, evidence_name = 'AIC'):
             box_pairs.append(((d,pair[0]), (d,pair[1])))
 
     ## plot
-    fig = plt.figure(figsize = (5,7))
-    p = sns.violinplot(data=collapse_evidence.loc[collapse_evidence['model'].isin(moi)], x='Direction', y=evidence_name, hue='model', inner='quartile', palette = 'rocket', linewidth=2, alpha = 0.5, )
+    fig = plt.figure(figsize = (5,8))
+    p = sns.violinplot(data=collapse_evidence.loc[collapse_evidence['model'].isin(moi)], x='Direction', y=evidence_name, hue='model', inner='quartile', palette = 'rocket', linewidth=2)
     p.set_xlabel('Direction', fontsize = 18)
     p.set_xticklabels(['Up','Down'], fontsize = 16)
     p.set_ylabel(evidence_name, fontsize = 18)
     p.set_ylim([0, p.get_ylim()[1]])
     p.set_yticks(ticks = np.linspace(0,500,6), labels = np.linspace(0,500,6, dtype=int),fontsize = 16)
-    legend = p.legend(title = 'Model', loc = 'lower right', fontsize = 10)
+    legend = p.legend(title='Model', loc='lower center', fontsize=10, bbox_to_anchor=(0.6, 0))
 
     ## formatting (useful if using old version of sns??)
     for artist in p.collections:
         artist.set_alpha(0.85)
     for line in p.lines:
         # line.set_color("white")
-        line.set_linewidth(1.5)  # Adjust the linewidth if necessary
+        line.set_linewidth(2)  # Adjust the linewidth if necessary
     for text in legend.get_texts():
+        if text.get_text() == "Q-asymm_m2":
+            text.set_text("Q-asymm²")
         text.set_fontstyle('italic')
 
     # add stars for significance
-    test_results = statannot.add_stat_annotation(p, data=collapse_evidence.loc[collapse_evidence['model'].isin(moi)], x='Direction', y=evidence_name, hue='model',
-                                    box_pairs=box_pairs,
-                                    test='Wilcoxon', 
-                                    comparisons_correction='bonferroni',
-                                    text_format='star',
-                                    loc='outside', 
-                                        line_offset=0.01,
-                                    verbose=1)
+    annotator = Annotator(p, box_pairs, data=collapse_evidence.loc[collapse_evidence['model'].isin(moi)], x='Direction', y=evidence_name, hue='model')
+    annotator.configure(test='Wilcoxon', text_format='star', loc='outside', comparisons_correction='bonferroni',
+                        line_height=0.005,  
+                        line_offset_to_group=0.001,
+                        # pvalue_thresholds=[(0.05, "*"), (0.01, "**"), (0.001, "***")], 
+                        hide_non_significant=True
+                        )
+    annotator.apply_and_annotate()
     
     return fig, p
 
 ## plot pxp
 def plot_pxp(df_pxp):
     directions = ['up','down']
-    figs_pxp, ax = plt.subplots(1,1, figsize = (4,8))
+    figs_pxp, ax = plt.subplots(1,1, figsize = (5,8))
     sns.barplot(data = df_pxp, x = 'Direction', y = 'pxp', hue = 'model',order =directions, ax = ax, alpha=1,  linewidth = 2, palette = 'rocket')
     sns.swarmplot(data = df_pxp, x = 'Direction', y = 'freq', hue = 'model',order =directions, ax = ax, alpha=1, marker = 'd', size=13, color = 'black', dodge = True, legend = False)
     ax.set_ylim(0,1)
@@ -798,6 +863,8 @@ def plot_pxp(df_pxp):
     ax.set_ylabel('pxp', fontsize = 16)
     legend = ax.legend(loc='upper left',  fontsize = 10, title = 'Model')
     for text in legend.get_texts():
+        if text.get_text() == "Q-asymm_m2":
+            text.set_text("Q-asymm²")
         text.set_fontstyle('italic')
 
     return figs_pxp, ax
@@ -807,10 +874,19 @@ def axes_formatting(figs, axs, x_tick_labels = np.arange(1,7)):
 
     ## make x-axis visible for bottom row only
     for ax in axs[-1, :]:
-        _, xmax = ax.get_xlim()
-        n_xticks = len(x_tick_labels)
-        tick_starts = np.linspace(0, xmax*n_xticks/(n_xticks+1),n_xticks)
-        ax.set_xticks(ticks = tick_starts, labels = x_tick_labels, fontsize = 13)
+        xmin, xmax = ax.get_xlim()
+        if xmin>=0:
+            n_xticks = len(x_tick_labels)
+            tick_starts = np.linspace(0, xmax*n_xticks/(n_xticks+1),n_xticks)
+            ax.set_xticks(ticks = tick_starts, labels = x_tick_labels, fontsize = 13)
+
+        ## HACKY FOR REL TRIALS: ticks from -150, 0, 150
+        elif xmin<0:
+            x_tick_labels = np.round(np.linspace(-150, 150, 3)).astype(int)
+            n_xticks = len(x_tick_labels)
+            tick_starts = x_tick_labels
+            ax.set_xticks(ticks = tick_starts, labels = x_tick_labels, fontsize = 12)
+
     try:
         for ax in axs[:-1, :].squeeze():
             ax.xaxis.set_visible(False)
@@ -923,9 +999,12 @@ def plot_cm(all_data, split_method, vmin = 0.1, vmax = 0.9, plot_setting = 1, ty
             toplot = all_data.loc[
                                 (all_data['Switched']=='pre')].pivot_table(index='Largest_number', columns='Smallest_number', values='Accuracy '+current_model, aggfunc='mean', fill_value=0)
         elif type == 'prob':
-            toplot = all_data.loc[
+            if current_model == 'human':
+                toplot = all_data.loc[
                                 (all_data['Switched']=='pre')].pivot_table(index='Largest_number', columns='Smallest_number', values='Largest_chosen_'+current_model, aggfunc='mean', fill_value=0)
-
+            else:
+                toplot = all_data.loc[
+                                (all_data['Switched']=='pre')].pivot_table(index='Largest_number', columns='Smallest_number', values='Largest_CP_'+current_model, aggfunc='mean', fill_value=0)
         toplot = toplot.replace(0, np.nan)
         print(np.nanmin(toplot), np.nanmax(toplot))
         ax = axs[0,0]
@@ -964,8 +1043,12 @@ def plot_cm(all_data, split_method, vmin = 0.1, vmax = 0.9, plot_setting = 1, ty
                 toplot = all_data.loc[(all_data['Direction']==d)
                                     &(all_data['Switched']=='post')].pivot_table(index='Largest_number', columns='Smallest_number', values='Accuracy '+current_model, aggfunc='mean', fill_value=0)
             elif type == 'prob':
-                toplot = all_data.loc[(all_data['Direction']==d)
-                                    &(all_data['Switched']=='post')].pivot_table(index='Largest_number', columns='Smallest_number', values='Largest_chosen_'+current_model, aggfunc='mean', fill_value=0)
+                if current_model == 'human':
+                    toplot = all_data.loc[(all_data['Direction']==d)
+                                        &(all_data['Switched']=='post')].pivot_table(index='Largest_number', columns='Smallest_number', values='Largest_chosen_'+current_model, aggfunc='mean', fill_value=0)
+                else:
+                    toplot = all_data.loc[(all_data['Direction']==d)
+                                        &(all_data['Switched']=='post')].pivot_table(index='Largest_number', columns='Smallest_number', values='Largest_CP_'+current_model, aggfunc='mean', fill_value=0)
             toplot = toplot.replace(0, np.nan)
             print(np.nanmin(toplot), np.nanmax(toplot))
             ax = axs[1,di]
@@ -983,6 +1066,9 @@ def plot_cm(all_data, split_method, vmin = 0.1, vmax = 0.9, plot_setting = 1, ty
                             #   annot_kws={'weight': 'bold', 'fontsize': 'small'},
                             #   cbar_kws={'label': 'Pre vs post change in P(x<y)', 'orientation': 'vertical', 'ticks': np.linspace(vmin,vmax,5)}
                 )
+            
+            # cbar title
+            
 
             ## formatting
             ax.spines['top'].set_visible(False)
@@ -1002,7 +1088,11 @@ def plot_cm(all_data, split_method, vmin = 0.1, vmax = 0.9, plot_setting = 1, ty
         plt.figure()
         
         ## suptitle 
-        figs.suptitle(current_model, fontsize = 20, y = 1.05, fontstyle = 'italic')
+        if current_model == 'Q-asymm_m2':
+            title = 'Q-asymm²'
+        else:
+            title = current_model
+        figs.suptitle(title, fontsize = 20, y = 1.05, fontstyle = 'italic')
 
         ## colorbar if using imshow
         # c = figs.colorbar(pos, ax=axs.ravel().tolist(), shrink = 0.4)
@@ -1035,24 +1125,44 @@ def plot_cm(all_data, split_method, vmin = 0.1, vmax = 0.9, plot_setting = 1, ty
 
                 ## get average of pre vs post difference
                 pre_block = 0
-                if model == 'human':
-                    toplot_pre = all_data.loc[(all_data['Direction']==d)
-                                            &(all_data['Switched']=='pre')
-                                            &(all_data['Block']>=pre_block)
-                                            ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Largest_chosen_'+model, aggfunc=np.nanmean, fill_value=0)
-                    toplot_post = all_data.loc[(all_data['Direction']==d)
-                                            &(all_data['Switched']=='post')
-                                            #   &(all_data['Block']==6)
+                if type =='prob':
+                    if model == 'human':
+                        toplot_pre = all_data.loc[(all_data['Direction']==d)
+                                                &(all_data['Switched']=='pre')
+                                                &(all_data['Block']>=pre_block)
                                                 ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Largest_chosen_'+model, aggfunc=np.nanmean, fill_value=0)
-                else:
-                    toplot_pre = all_data.loc[(all_data['Direction']==d)
-                                            &(all_data['Switched']=='pre')
-                                            &(all_data['Block']>=pre_block)
-                                            ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Largest_CP_'+model, aggfunc=np.nanmean, fill_value=0)
-                    toplot_post = all_data.loc[(all_data['Direction']==d)
-                                            &(all_data['Switched']=='post')
-                                            #   &(all_data['Block']==6)
+                        toplot_post = all_data.loc[(all_data['Direction']==d)
+                                                &(all_data['Switched']=='post')
+                                                #   &(all_data['Block']==6)
+                                                    ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Largest_chosen_'+model, aggfunc=np.nanmean, fill_value=0)
+                    else:
+                        toplot_pre = all_data.loc[(all_data['Direction']==d)
+                                                &(all_data['Switched']=='pre')
+                                                &(all_data['Block']>=pre_block)
                                                 ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Largest_CP_'+model, aggfunc=np.nanmean, fill_value=0)
+                        toplot_post = all_data.loc[(all_data['Direction']==d)
+                                                &(all_data['Switched']=='post')
+                                                #   &(all_data['Block']==6)
+                                                    ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Largest_CP_'+model, aggfunc=np.nanmean, fill_value=0)
+                elif type == 'acc':
+                    if model == 'human':
+                        toplot_pre = all_data.loc[(all_data['Direction']==d)
+                                                &(all_data['Switched']=='pre')
+                                                &(all_data['Block']>=pre_block)
+                                                ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Accuracy '+model, aggfunc=np.nanmean, fill_value=0)
+                        toplot_post = all_data.loc[(all_data['Direction']==d)
+                                                &(all_data['Switched']=='post')
+                                                #   &(all_data['Block']==6)
+                                                    ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Accuracy '+model, aggfunc=np.nanmean, fill_value=0)
+                    else:
+                        toplot_pre = all_data.loc[(all_data['Direction']==d)
+                                                &(all_data['Switched']=='pre')
+                                                &(all_data['Block']>=pre_block)
+                                                ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Accuracy '+model, aggfunc=np.nanmean, fill_value=0)
+                        toplot_post = all_data.loc[(all_data['Direction']==d)
+                                                &(all_data['Switched']=='post')
+                                                #   &(all_data['Block']==6)
+                                                    ].pivot_table(index='Participant', columns=['Largest_number', 'Smallest_number'], values='Accuracy '+model, aggfunc=np.nanmean, fill_value=0)
                 differences = toplot_post - toplot_pre
                 differences = differences.replace(0, np.nan)
                 toplot = pd.DataFrame(np.nan, index = np.arange(1,8), columns = np.arange(1,8))
@@ -1065,11 +1175,14 @@ def plot_cm(all_data, split_method, vmin = 0.1, vmax = 0.9, plot_setting = 1, ty
                 toplot = toplot.iloc[1:, :-1]
 
                 ## plot
+                cbar = True
                 cbar = False
-                pos = sns.heatmap(toplot, ax=ax, vmin = vmin, vmax = vmax, annot=False, square = True, cbar = cbar, fmt='.2f',
-                            annot_kws={'weight': 'bold', 'fontsize': 'small'},
+                pos = sns.heatmap(toplot, ax=ax, vmin = vmin, vmax = vmax, annot=True, square = True, cbar = cbar, fmt='.2f',
+                            annot_kws={'weight': 'bold', 'fontsize': 'medium', 'color': 'black'},
+                            cmap='coolwarm_r'
                             #   cbar_kws={'label': 'Pre vs post change in P(x<y)', 'orientation': 'vertical', 'ticks': np.linspace(vmin,vmax,5)}
                 )
+                print(vmin, vmax)
                 for text in pos.texts:
                     color, weight = text_color_and_weight(float(text.get_text()))
                     text.set_color(color)
@@ -1086,7 +1199,11 @@ def plot_cm(all_data, split_method, vmin = 0.1, vmax = 0.9, plot_setting = 1, ty
 
 
     plt.tight_layout()
-    plt.suptitle(current_model, fontsize = 20, y = 1.05, fontstyle = 'italic')
+    if current_model == 'Q-asymm_m2':
+        title = 'Q-asymm²'
+    else:
+        title = current_model
+    plt.suptitle(title, fontsize = 20, y = 1.05, fontstyle = 'italic')
     # plt.suptitle(current_model)
     plt.figure()
 
@@ -1212,8 +1329,12 @@ def pref_change(all_data, model = 'human', df_prefs = None, plot = False):
                 else:
                     prefs[model+ ' '+str(i)].append(np.mean(
                         np.concatenate([
-                            1-data.loc[(data['Item_1']==i)& (data['Item_distance']<6)]['CP '+model],
-                            data.loc[(data['Item_2']==i)& (data['Item_distance']<6)]['CP '+model]
+                            1-data.loc[(data['Item_1']==i)& (data['Item_distance']<6)
+                                    #    & (data['Feedback_on']==0)
+                                       ]['CP '+model],
+                            data.loc[(data['Item_2']==i)& (data['Item_distance']<6)
+                                    #  & (data['Feedback_on']==0)
+                                     ]['CP '+model]
                         ])
                         )
                     )
@@ -1227,16 +1348,18 @@ def pref_change(all_data, model = 'human', df_prefs = None, plot = False):
                     prefs[model+ ' '+str(i)].append(np.mean(data.loc[
                         ((data['Item_1']==i) | (data['Item_2']==i))
                         &(data['Item_distance']<6)
-                        # & (data['Feedback_on']==0)
+                        & (data['Feedback_on']==0)
                         ]['Chosen_Item']==i))
                 else:
                     prefs[model+ ' '+str(i)].append(np.mean(
                         np.concatenate([
                             1-data.loc[(data['Item_1']==i)
                                        & (data['Item_distance']<6)
+                                        # & (data['Feedback_on']==0)
                                        ]['CP '+model],
                             data.loc[(data['Item_2']==i)
                                      & (data['Item_distance']<6)
+                                        # & (data['Feedback_on']==0)
                                      ]['CP '+model]
                         ])
                         )
@@ -1246,18 +1369,71 @@ def pref_change(all_data, model = 'human', df_prefs = None, plot = False):
     #convert to df
     df_prefs = pd.DataFrame.from_dict(prefs)
 
-    ##plot 
+    ## single plot, where hue gives the colour, and linestyle gives the item. to do this, we need to melt the df, so that we have a column for the item number
+    df_prefs_melted = df_prefs.melt(id_vars = ['Participant','Direction','Block'], var_name = 'Item', value_name = 'Preference')
+    df_prefs_melted['Item'] = df_prefs_melted['Item'].str.split(' ').str[1].astype(int)
     if plot:
-        for i in [1,7]:
-            plt.figure()
-            sns.lineplot(data = df_prefs.loc[df_prefs['Block'].isin(np.arange(1,7))], x = 'Block', y = model+ ' '+str(i), hue = 'Direction')
-            plt.title(i)
-            plt.ylim([0,1])
-        for i in [1,7]:
-            plt.figure()
-            sns.lineplot(data = df_prefs.loc[(df_prefs['Block']=='pre') | (df_prefs['Block']=='post')], x = 'Block', y = model+ ' '+str(i), hue = 'Direction')
-            plt.title(i)
-            plt.ylim([0,1])
+        fig, ax = plt.subplots(1,1, figsize = (4,4))
+        toplot = df_prefs_melted.loc[df_prefs_melted['Block'].isin(np.arange(1,7))]
+        sns.lineplot(data = toplot, x = 'Block', y = 'Preference', hue = 'Direction', style = 'Item', ax = ax)
+        ax.set_ylim([0,1])
+        ax.set_xticks(ticks = np.arange(1,7), labels = np.arange(1,7), fontsize = 13)
+        ax.set_yticks(ticks = np.linspace(0,1,6), labels = np.round(np.linspace(0,1,6),2), fontsize = 13)
+        ax.set_xlabel('Block', fontsize = 15)
+        ax.set_ylabel('P(item chosen)', fontsize = 15)
+
+        ## legend
+        legend = ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1.03), fontsize=12)
+        for text in legend.get_texts():
+            if text.get_text() == 'Direction' or text.get_text() == 'Item':
+                pass
+            else:
+                text.set_fontstyle('italic')
+                text.set_fontsize(10)
+
+        ## repeat, but for pre vs post
+        fig, ax = plt.subplots(1,1, figsize = (4,4))
+        toplot = df_prefs_melted.loc[(df_prefs_melted['Block']=='pre') | (df_prefs_melted['Block']=='post')]
+        sns.lineplot(data =toplot, x = 'Block', y = 'Preference', hue = 'Direction', style = 'Item', ax = ax)
+        ax.set_ylim([0,1])
+        ax.set_xticks(ticks = np.arange(0,2), labels = ['Pre','Post'], fontsize = 13)
+        ax.set_yticks(ticks = np.linspace(0,1,6), labels = np.round(np.linspace(0,1,6),2), fontsize = 13)
+        ax.set_xlabel('Block', fontsize = 15)
+        ax.set_ylabel('P(item chosen)', fontsize = 15)
+
+        ## legend
+        legend = ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1.03), fontsize=12)
+        for text in legend.get_texts():
+            if text.get_text() == 'Direction' or text.get_text() == 'Item':
+                pass
+            else:
+                text.set_fontstyle('italic')
+                text.set_fontsize(10)
+
+        
+        ## repeat, but for all trials with rolling average
+        if model == 'human':
+            fig, ax = plt.subplots(1,1, figsize = (4,4))
+            hues = sns.color_palette('tab10', n_colors = 2)
+            linestyles = ['solid','dashed']
+            for di, d in enumerate(directions):
+                for ii, i in enumerate([1,7]):
+                    to_plot = all_data.loc[((all_data['Item_1']==i) | (all_data['Item_2']==i))
+                                        & (all_data['Item_distance']<6)
+                                        & (all_data['Direction']==d)]
+                    to_plot['anchor_chosen'] = to_plot['Chosen_Item'] == i
+                    to_plot = to_plot.groupby(['Trial']).mean('anchor_chosen')['anchor_chosen']
+                    to_plot = to_plot.rolling(window=100).mean()
+                    to_plot = to_plot.reindex(np.arange(1,all_data['Trial'].max()+1))
+                    sns.lineplot(x = to_plot.index, y = to_plot.values, ax = ax, lw=3.5,label = i, color = hues[di], linestyle = linestyles[ii])
+            ax.set_ylim([0,1])
+
+        
+
+
+
+
+    
 
         
 
@@ -1310,6 +1486,13 @@ def pref_change(all_data, model = 'human', df_prefs = None, plot = False):
         se_pref = scipy.stats.sem(df_prefs.loc[(df_prefs['Direction']==d)&(df_prefs['Block']=='post'), model+ ' 1 change pre vs post'])
         t = scipy.stats.ttest_1samp(df_prefs.loc[(df_prefs['Direction']==d)&(df_prefs['Block']=='post'), model+ ' 1 change pre vs post'], 0)
         print(d+': ',mean_pref, ', SE = ', se_pref, ', t = ', t.statistic, ', p = ', t.pvalue)
+        
+        ## effsizes
+        data1 = df_prefs.loc[(df_prefs['Direction']==d)&(df_prefs['Block']=='pre'), model+ ' 1'].to_numpy()
+        data2 = df_prefs.loc[(df_prefs['Direction']==d)&(df_prefs['Block']=='post'), model+ ' 1'].to_numpy()
+        paired_ttest_extras(data1, data2)
+
+
     print()
     print('Changes in selection of item 7 in post-switch relative to pre-switch')
     for d in directions:
@@ -1317,15 +1500,25 @@ def pref_change(all_data, model = 'human', df_prefs = None, plot = False):
         se_pref = scipy.stats.sem(df_prefs.loc[(df_prefs['Direction']==d)&(df_prefs['Block']=='post'), model+ ' 7 change pre vs post'])
         t = scipy.stats.ttest_1samp(df_prefs.loc[(df_prefs['Direction']==d)&(df_prefs['Block']=='post'), model+ ' 7 change pre vs post'], 0)
         print(d+': ',mean_pref, ', SE = ', se_pref,', t = ', t.statistic, ', p = ', t.pvalue)
+
+        ## effsizes
+        data1 = df_prefs.loc[(df_prefs['Direction']==d)&(df_prefs['Block']=='pre'), model+ ' 7'].to_numpy()
+        data2 = df_prefs.loc[(df_prefs['Direction']==d)&(df_prefs['Block']=='post'), model+ ' 7'].to_numpy()
+        paired_ttest_extras(data1, data2)
+
     print()
 
     ## ttest to see if changes in selection of item 1 in up participants are significantly different from changes in selection of item 7 in down participants
     t = scipy.stats.ttest_ind(df_prefs.loc[(df_prefs['Direction']=='up')&(df_prefs['Block']=='post'), model+ ' 1 change pre vs post'], -1*df_prefs.loc[(df_prefs['Direction']=='down')&(df_prefs['Block']=='post'), model+ ' 7 change pre vs post'])
     print('ttest of moved item preference change (down-7 vs up-1): t = ',t.statistic, ', p = ',t.pvalue)
+    indep_sample_ttest_extras(df_prefs.loc[(df_prefs['Direction']=='up')&(df_prefs['Block']=='post'), model+ ' 1 change pre vs post'], -1*df_prefs.loc[(df_prefs['Direction']=='down')&(df_prefs['Block']=='post'), model+ ' 7 change pre vs post'])
+
 
     ## repeat, but with the unmoved item
-    t = scipy.stats.ttest_ind(df_prefs.loc[(df_prefs['Direction']=='up')&(df_prefs['Block']=='post'), model+ ' 7 change pre vs post'], df_prefs.loc[(df_prefs['Direction']=='down')&(df_prefs['Block']=='post'), model+ ' 1 change pre vs post'])
+    t = scipy.stats.ttest_ind(df_prefs.loc[(df_prefs['Direction']=='up')&(df_prefs['Block']=='post'), model+ ' 7 change pre vs post'], -1*df_prefs.loc[(df_prefs['Direction']=='down')&(df_prefs['Block']=='post'), model+ ' 1 change pre vs post'])
     print('ttest of unmoved item preference change (down-1 vs up-7): t = ',t.statistic, ', p = ',t.pvalue)
+    indep_sample_ttest_extras(df_prefs.loc[(df_prefs['Direction']=='up')&(df_prefs['Block']=='post'), model+ ' 7 change pre vs post'], -1*df_prefs.loc[(df_prefs['Direction']=='down')&(df_prefs['Block']=='post'), model+ ' 1 change pre vs post'])
+
     
     return df_prefs
 
