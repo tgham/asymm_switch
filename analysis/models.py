@@ -28,13 +28,13 @@ class TI_RL:
         self.Qvals = np.zeros((self.n_trials,self.n_items)) 
         self.CP = np.zeros(self.n_trials) +0.5
         self.correctP = np.zeros(self.n_trials)+0.5
-        self.ELO = np.zeros((self.n_trials))
         self.trial_loss = np.zeros(self.n_trials)
         self.cum_loss = np.zeros(self.n_trials)
         self.a1s = np.zeros(self.n_trials+1)
         self.a2s = np.zeros(self.n_trials+1)
         self.asymm = np.zeros(self.n_trials)
         self.pairs = np.array(list(itertools.combinations(np.arange(0,self.n_items), 2)))
+        self.df_trials = df_trials
 
 
         ## intitialise params
@@ -83,7 +83,7 @@ class TI_RL:
 
 
         #Q-adapt (parameterised entropy func)
-        elif model == 12:
+        elif model == 3:
             self.a1s[:] = params[0]
             self.a2s[:] = 0
             self.eta = params[1]
@@ -95,8 +95,8 @@ class TI_RL:
             elif model_set == 2: 
                 self.omi1 = params[-2]
                 self.omi2 = params[-1]
-        
 
+        
         #prevent error caused by division by tau=0
         if self.tauI == 0:
             self.tauI = np.finfo(float).tiny
@@ -118,11 +118,11 @@ class TI_RL:
 
 
             #first, check whether the first (or second) switch trial was reached, in which case activate the new learning rates
-            if model_set in (np.arange(1,3)) and t == self.switch:#df_trials['InverseFb'].argmax(): #df_trials['switched'].argmax():
+            if model_set in (np.arange(1,3)) and t == self.switch:
                 self.a1s[t-1:] = self.omi1
                 self.a2s[t-1:] = self.omi2
+                    
             
-
             ## get info for current trial
 
             #item values  at trial t
@@ -150,7 +150,7 @@ class TI_RL:
                 self.vdiff[t] = (self.Q[winner] - self.Q[loser])*self.eta 
 
                 # adaptive asymm, determined by choice entropy
-                if model == 2:
+                if (model == 2):
 
                     self.asymm[t] = self.entropy(self.correctP[t])
                     
@@ -160,7 +160,7 @@ class TI_RL:
                     self.a2s[t] = LRs[1]
 
                 ## adapive asymm, determined by parameterised choice entropy
-                elif model ==12:
+                elif (model ==3):
 
                     self.asymm[t] = self.entropy_like(self.correctP[t], self.meta)
 
@@ -169,13 +169,12 @@ class TI_RL:
                     self.a1s[t] = LRs[0]
                     self.a2s[t] = LRs[1]
 
-
-                ## update winners and losers
+                # biased update of winners and losers
                 self.Q[winner] = self.Q[winner] + self.a1s[t]   * np.maximum(1 - self.vdiff[t] - self.Q[winner],0) #winner
                 self.Q[loser] = self.Q[loser]   + self.a2s[t]   * np.minimum(-1 + self.vdiff[t] - self.Q[loser],0) #loser
 
 
-        ## normalise Qvalues between 0 and 1
+        ## normalise Qvalues
         self.Qvals = self.normalise(self.Qvals, -1, 1)
         # self.Qvals+=0.5
         
@@ -302,7 +301,7 @@ class TI_RL:
             self.run(params, df_trials, model, model_set, fit, recovery)
 
             
-            # add output from simulationback to the original participant dataframe
+            # add output from simulation back to the original participant dataframe
             all_data.loc[all_data['Participant'] == p,'CP '+current_model] = self.CP
             all_data.loc[all_data['Participant'] == p,'asymm '+current_model] = self.asymm
             all_data.loc[all_data['Participant'] == p,'Accuracy '+current_model] = self.correctP
